@@ -77,8 +77,10 @@ export async function runDeployment(
       upstream: `${containerName}:${containerPort}`,
     });
 
-    const url =
-      env.PUBLIC_PORT === 80 ? `http://${host}` : `http://${host}:${env.PUBLIC_PORT}`;
+    const defaultPort = env.SCHEME === "https" ? 443 : 80;
+    const url = env.PUBLIC_PORT === defaultPort
+      ? `${env.SCHEME}://${host}`
+      : `${env.SCHEME}://${host}:${env.PUBLIC_PORT}`;
     await log.info(`✅ live at ${url}`);
 
     const completedAt = new Date();

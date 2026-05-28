@@ -12,4 +12,5 @@ export const env = {
   // Public port Caddy is published on. 80 is hogged by Rancher Desktop on
   // macOS, so we use 8080 locally. URLs become http://<slug>.localhost:8080.
   PUBLIC_PORT: Number(process.env.DEPLOYIT_PUBLIC_PORT ?? 18080),
+  SCHEME: process.env.DEPLOYIT_SCHEME ?? "http",
 };
