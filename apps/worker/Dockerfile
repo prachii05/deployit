@@ -4,19 +4,20 @@ RUN corepack enable && corepack prepare pnpm@10.32.1 --activate \
 WORKDIR /repo
 
 FROM base AS build
-COPY package.json pnpm-workspace.yaml pnpm-lock.yaml* tsconfig.base.json ./
+COPY pnpm-lock.yaml pnpm-workspace.yaml package.json tsconfig.base.json ./
 COPY packages/db/package.json ./packages/db/
 COPY apps/worker/package.json ./apps/worker/
-RUN pnpm install --filter @deployit/worker... --frozen-lockfile=false
+RUN pnpm install --frozen-lockfile=false
 COPY packages/db ./packages/db
 COPY apps/worker ./apps/worker
-RUN pnpm --filter @deployit/worker run build
+RUN pnpm --filter @deployit/db run build \
+ && pnpm --filter @deployit/worker run build \
+ && pnpm deploy --filter @deployit/worker --prod /prod \
+ && cp -r apps/worker/templates /prod/templates
 
-FROM base AS runner
+FROM node:20-alpine AS runner
+RUN apk add --no-cache git
 ENV NODE_ENV=production
-COPY --from=build /repo/node_modules ./node_modules
-COPY --from=build /repo/packages/db ./packages/db
-COPY --from=build /repo/apps/worker/dist ./apps/worker/dist
-COPY --from=build /repo/apps/worker/templates ./apps/worker/templates
-COPY --from=build /repo/apps/worker/package.json ./apps/worker/
-CMD ["node", "apps/worker/dist/index.js"]
+WORKDIR /app
+COPY --from=build /prod /app
+CMD ["node", "dist/index.js"]
