@@ -11,14 +11,89 @@ import { teardownProject } from "../infra.js";
 import { registerWebhook, unregisterWebhook } from "../services/github.js";
 import { decrypt } from "../crypto.js";
 import { env } from "../env.js";
+import { envVarsRouter } from "./env-vars.js";
 
 export const projectsRouter = Router();
 
 projectsRouter.use(requireAuth);
 
+// Nested resource: /api/projects/:projectId/env-vars
+projectsRouter.use("/:projectId/env-vars", envVarsRouter);
+
 // Try common Docker socket locations so this works in Docker (prod) and on a
 // dev laptop running Rancher/Docker Desktop.
 const docker = new Docker({ socketPath: detectDockerSocket() });
+
+// Max simultaneously running ("live" or "deploying") projects per user.
+// Sleeping projects don't count — they use 0 RAM.
+const MAX_LIVE_PER_USER = 3;
+
+async function countActiveProjects(userId: number): Promise<number> {
+  const rows = await db
+    .select()
+    .from(projects)
+    .where(eq(projects.userId, userId));
+  return rows.filter((p) => p.status === "live" || p.status === "deploying").length;
+}
+
+/**
+ * Default Docker container port we route to. Static sites use nginx on :80;
+ * everything else listens on :3000 (see apps/worker/src/templates.ts).
+ */
+function upstreamFor(slug: string, framework: string | null): string {
+  const port = framework === "static" ? 80 : 3000;
+  return `deployit-${slug}:${port}`;
+}
+
+const CADDY_ADMIN = process.env.CADDY_ADMIN_URL ?? "http://caddy:2019";
+
+/**
+ * Swap a project's Caddy route. When sleeping, traffic is sent to our own
+ * API which serves the "waking up" page; when live, traffic goes back to
+ * the container.
+ */
+async function setCaddyRoute(opts: {
+  slug: string;
+  host: string;
+  target: "container" | "waking";
+  framework: string | null;
+}): Promise<void> {
+  const route =
+    opts.target === "container"
+      ? {
+          "@id": opts.slug,
+          match: [{ host: [opts.host] }],
+          handle: [
+            {
+              handler: "reverse_proxy",
+              upstreams: [{ dial: upstreamFor(opts.slug, opts.framework) }],
+            },
+          ],
+        }
+      : {
+          "@id": opts.slug,
+          match: [{ host: [opts.host] }],
+          handle: [
+            {
+              handler: "rewrite",
+              uri: `/__waking?slug=${opts.slug}`,
+            },
+            {
+              handler: "reverse_proxy",
+              upstreams: [{ dial: "api:4000" }],
+            },
+          ],
+        };
+
+  const existing = await fetch(`${CADDY_ADMIN}/id/${opts.slug}`);
+  if (existing.ok) {
+    await fetch(`${CADDY_ADMIN}/id/${opts.slug}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(route),
+    });
+  }
+}
 
 function detectDockerSocket(): string {
   const candidates = [
@@ -131,6 +206,17 @@ projectsRouter.post("/:id/deploy", async (req, res) => {
     .limit(1);
   if (!proj[0]) return res.status(404).json({ error: "not found" });
 
+  // Per-user concurrency limit: only count OTHER projects (so re-deploying
+  // an already-live project doesn't fail).
+  if (proj[0].status !== "live" && proj[0].status !== "deploying") {
+    const active = await countActiveProjects(req.user!.id);
+    if (active >= MAX_LIVE_PER_USER) {
+      return res.status(429).json({
+        error: `Limit reached: max ${MAX_LIVE_PER_USER} active apps per user. Sleep one first.`,
+      });
+    }
+  }
+
   const [created] = await db
     .insert(deployments)
     .values({ projectId: id, status: "queued" })
@@ -181,6 +267,99 @@ projectsRouter.get("/:id/runtime-logs", async (req, res) => {
     res.status(500).json({ error: err.message ?? String(e) });
   }
 });
+
+/**
+ * Stop the live container to free RAM. The image stays — waking it up is
+ * just `docker start`, no rebuild needed.
+ */
+projectsRouter.post("/:id/sleep", async (req, res) => {
+  const id = Number(req.params.id);
+  const proj = await db
+    .select()
+    .from(projects)
+    .where(and(eq(projects.id, id), eq(projects.userId, req.user!.id)))
+    .limit(1);
+  if (!proj[0]) return res.status(404).json({ error: "not found" });
+
+  const containerName = `deployit-${proj[0].slug}`;
+  try {
+    const c = docker.getContainer(containerName);
+    await c.stop({ t: 5 });
+  } catch (e) {
+    const err = e as { statusCode?: number };
+    // 304 = not running, 404 = doesn't exist; both are fine.
+    if (err.statusCode !== 304 && err.statusCode !== 404) throw e;
+  }
+
+  // Swap Caddy route so visitors see our "waking up" page instead of a 502.
+  await setCaddyRoute({
+    slug: proj[0].slug,
+    host: `${proj[0].slug}.${new URL(env.WEB_ORIGIN).hostname}`,
+    target: "waking",
+    framework: proj[0].framework,
+  }).catch((e) => console.error("caddy swap to waking failed:", e));
+
+  await db.update(projects).set({ status: "sleeping" }).where(eq(projects.id, id));
+  res.json({ ok: true, status: "sleeping" });
+});
+
+/**
+ * Start a sleeping container. Fast — usually 1-3 seconds. Falls back to a
+ * fresh deploy if the container was removed.
+ */
+projectsRouter.post("/:id/wake", async (req, res) => {
+  const id = Number(req.params.id);
+  const proj = await db
+    .select()
+    .from(projects)
+    .where(and(eq(projects.id, id), eq(projects.userId, req.user!.id)))
+    .limit(1);
+  if (!proj[0]) return res.status(404).json({ error: "not found" });
+
+  // Per-user limit applies on wake too — sleeping projects use 0 RAM but
+  // waking one up costs the same as deploying.
+  const active = await countActiveProjects(req.user!.id);
+  if (active >= MAX_LIVE_PER_USER) {
+    return res.status(429).json({
+      error: `Limit reached: max ${MAX_LIVE_PER_USER} active apps per user. Sleep one first.`,
+    });
+  }
+
+  const result = await wakeProject(proj[0]);
+  if (!result.ok) return res.status(409).json(result);
+  return res.json(result);
+});
+
+/**
+ * Shared wake logic used by both the authenticated wake endpoint and the
+ * public "first visit wakes the app" endpoint.
+ */
+async function wakeProject(
+  p: { id: number; slug: string; framework: string | null }
+): Promise<{ ok: true; status: string } | { ok: false; error: string; action: string }> {
+  const containerName = `deployit-${p.slug}`;
+  try {
+    const c = docker.getContainer(containerName);
+    await c.start();
+  } catch (e) {
+    const err = e as { statusCode?: number };
+    if (err.statusCode !== 304) {
+      // Container missing — caller should trigger a fresh deploy.
+      return { ok: false, error: "container missing, redeploy required", action: "deploy" };
+    }
+    // 304 = already running, fine.
+  }
+
+  await setCaddyRoute({
+    slug: p.slug,
+    host: `${p.slug}.${new URL(env.WEB_ORIGIN).hostname}`,
+    target: "container",
+    framework: p.framework,
+  }).catch((e) => console.error("caddy swap to container failed:", e));
+
+  await db.update(projects).set({ status: "live" }).where(eq(projects.id, p.id));
+  return { ok: true, status: "live" };
+}
 
 projectsRouter.delete("/:id", async (req, res) => {
   const id = Number(req.params.id);

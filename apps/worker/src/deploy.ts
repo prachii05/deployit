@@ -7,6 +7,7 @@ import { eq } from "drizzle-orm";
 import {
   projects,
   deployments,
+  envVars as envVarsTable,
   type Deployment,
   type Project,
   type getDb,
@@ -16,6 +17,7 @@ import { detectFramework } from "./detect.js";
 import { writeDockerfile, exposedPortFor } from "./templates.js";
 import { DeploymentLogger } from "./logger.js";
 import { upsertRoute } from "./caddy.js";
+import { decrypt } from "./crypto.js";
 
 type Db = ReturnType<typeof getDb>;
 
@@ -66,8 +68,21 @@ export async function runDeployment(
     await ensureNetwork(env.NETWORK);
 
     const containerPort = exposedPortFor(fw);
+
+    // Pull user-configured env vars from DB and decrypt them.
+    const userEnv = await loadEnvVars(db, project.id);
+    if (Object.keys(userEnv).length > 0) {
+      await log.info(`🔐 injecting ${Object.keys(userEnv).length} env var(s)`);
+    }
+
     await log.info(`🚀 starting container on network ${env.NETWORK}`);
-    await runContainer({ imageTag, containerName, containerPort, network: env.NETWORK });
+    await runContainer({
+      imageTag,
+      containerName,
+      containerPort,
+      network: env.NETWORK,
+      envVars: userEnv,
+    });
 
     const host = `${project.slug}.${env.DOMAIN}`;
     await log.info(`🌐 configuring caddy route ${host} → ${containerName}:${containerPort}`);
@@ -181,10 +196,19 @@ async function runContainer(opts: {
   containerName: string;
   containerPort: number;
   network: string;
+  envVars: Record<string, string>;
 }): Promise<void> {
+  // Convert {KEY: "val"} → ["KEY=val", ...] for Docker's Env field.
+  // PORT is always set last so user env vars cannot override it.
+  const envArray = [
+    ...Object.entries(opts.envVars).map(([k, v]) => `${k}=${v}`),
+    `PORT=${opts.containerPort}`,
+  ];
+
   const container = await docker.createContainer({
     name: opts.containerName,
     Image: opts.imageTag,
+    Env: envArray,
     ExposedPorts: { [`${opts.containerPort}/tcp`]: {} },
     HostConfig: {
       Memory: 256 * 1024 * 1024,
@@ -200,4 +224,26 @@ async function ensureNetwork(name: string): Promise<void> {
   const networks = await docker.listNetworks({ filters: { name: [name] } });
   if (networks.find((n) => n.Name === name)) return;
   await docker.createNetwork({ Name: name, Driver: "bridge" });
+}
+
+/**
+ * Fetch all env vars for this project from the DB, decrypt their values, and
+ * return them as a plain object ready to pass to Docker. Skips any rows whose
+ * ciphertext fails to decrypt (e.g. key rotation, corrupted row) — better to
+ * launch the app with one missing var than to fail the whole deploy.
+ */
+async function loadEnvVars(db: Db, projectId: number): Promise<Record<string, string>> {
+  const rows = await db
+    .select()
+    .from(envVarsTable)
+    .where(eq(envVarsTable.projectId, projectId));
+  const out: Record<string, string> = {};
+  for (const row of rows) {
+    try {
+      out[row.key] = decrypt(row.valueEncrypted);
+    } catch (e) {
+      console.error(`failed to decrypt env var ${row.key} for project ${projectId}:`, e);
+    }
+  }
+  return out;
 }

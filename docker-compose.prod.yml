@@ -80,6 +80,7 @@ services:
       DEPLOYIT_SCHEME: https
       CADDY_ADMIN_URL: http://caddy:2019
       DOCKER_SOCKET: /var/run/docker.sock
+      ENCRYPTION_KEY: ${ENCRYPTION_KEY}
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
     depends_on:

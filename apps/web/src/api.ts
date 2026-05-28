@@ -70,6 +70,33 @@ export const api = {
     req<{ logs: RuntimeLogLine[]; container: string; message?: string }>(
       `/api/projects/${projectId}/runtime-logs?tail=${tail}`
     ),
+  envVars: (projectId: number) =>
+    req<{ envVars: EnvVar[] }>(`/api/projects/${projectId}/env-vars`),
+  setEnvVar: (projectId: number, key: string, value: string) =>
+    req<EnvVar>(`/api/projects/${projectId}/env-vars`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ key, value }),
+    }),
+  deleteEnvVar: (projectId: number, envId: number) =>
+    req<{ ok: true }>(`/api/projects/${projectId}/env-vars/${envId}`, {
+      method: "DELETE",
+    }),
+  sleep: (projectId: number) =>
+    req<{ ok: true; status: string }>(`/api/projects/${projectId}/sleep`, {
+      method: "POST",
+    }),
+  wake: (projectId: number) =>
+    req<{ ok: true; status: string }>(`/api/projects/${projectId}/wake`, {
+      method: "POST",
+    }),
+};
+
+export type EnvVar = {
+  id: number;
+  key: string;
+  preview: string;
+  createdAt?: string;
 };
 
 export type Deployment = {

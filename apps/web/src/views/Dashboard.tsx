@@ -3,6 +3,7 @@ import { api, type Project } from "../api";
 import { RepoPicker } from "./RepoPicker";
 import { LogsPanel } from "./LogsPanel";
 import { RuntimeLogsPanel } from "./RuntimeLogsPanel";
+import { EnvVarsPanel } from "./EnvVarsPanel";
 
 const statusStyles: Record<Project["status"], string> = {
   idle: "bg-zinc-700 text-zinc-200",
@@ -18,6 +19,7 @@ export function Dashboard() {
   const [error, setError] = useState<string | null>(null);
   const [watchingDeployment, setWatchingDeployment] = useState<number | null>(null);
   const [runtimeLogsFor, setRuntimeLogsFor] = useState<Project | null>(null);
+  const [envVarsFor, setEnvVarsFor] = useState<Project | null>(null);
   const [deployingId, setDeployingId] = useState<number | null>(null);
 
   async function refresh() {
@@ -50,6 +52,28 @@ export function Dashboard() {
       setError(String(e));
     } finally {
       setDeployingId(null);
+    }
+  }
+
+  async function toggleSleep(p: Project) {
+    setError(null);
+    try {
+      if (p.status === "sleeping") {
+        await api.wake(p.id);
+      } else {
+        await api.sleep(p.id);
+      }
+      refresh();
+    } catch (e) {
+      // If wake fails because container is gone, prompt to redeploy.
+      const msg = String(e);
+      if (msg.includes("redeploy")) {
+        if (confirm("Container was removed. Redeploy now?")) {
+          await deploy(p.id);
+        }
+      } else {
+        setError(msg);
+      }
     }
   }
 
@@ -127,6 +151,12 @@ export function Dashboard() {
                         Runtime logs
                       </button>
                     )}
+                    <button
+                      onClick={() => setEnvVarsFor(p)}
+                      className="text-xs text-purple-400 hover:underline"
+                    >
+                      Env vars
+                    </button>
                   </div>
                 </div>
                 <div className="flex items-center gap-2 shrink-0">
@@ -141,6 +171,19 @@ export function Dashboard() {
                         ? "Deploying…"
                         : "Deploy"}
                   </button>
+                  {(p.status === "live" || p.status === "sleeping") && (
+                    <button
+                      onClick={() => toggleSleep(p)}
+                      title={
+                        p.status === "sleeping"
+                          ? "Start the container"
+                          : "Stop the container to free RAM"
+                      }
+                      className="text-sm text-zinc-300 hover:text-white border border-zinc-700 px-3 py-1.5 rounded"
+                    >
+                      {p.status === "sleeping" ? "Wake" : "Sleep"}
+                    </button>
+                  )}
                   <button
                     onClick={() => remove(p.id)}
                     className="text-sm text-zinc-400 hover:text-red-400 px-2 py-1.5"
@@ -177,6 +220,14 @@ export function Dashboard() {
           projectId={runtimeLogsFor.id}
           projectName={runtimeLogsFor.repoFullName}
           onClose={() => setRuntimeLogsFor(null)}
+        />
+      )}
+
+      {envVarsFor && (
+        <EnvVarsPanel
+          projectId={envVarsFor.id}
+          projectName={envVarsFor.repoFullName}
+          onClose={() => setEnvVarsFor(null)}
         />
       )}
     </main>

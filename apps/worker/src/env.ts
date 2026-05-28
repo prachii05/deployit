@@ -13,4 +13,10 @@ export const env = {
   // macOS, so we use 8080 locally. URLs become http://<slug>.localhost:8080.
   PUBLIC_PORT: Number(process.env.DEPLOYIT_PUBLIC_PORT ?? 18080),
   SCHEME: process.env.DEPLOYIT_SCHEME ?? "http",
+  // Required to decrypt env vars written by the API. Same key both services use.
+  ENCRYPTION_KEY:
+    process.env.ENCRYPTION_KEY ??
+    (() => {
+      throw new Error("ENCRYPTION_KEY env var is required");
+    })(),
 };

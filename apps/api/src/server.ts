@@ -7,6 +7,7 @@ import { me } from "./routes/me.js";
 import { projectsRouter } from "./routes/projects.js";
 import { deploymentsRouter } from "./routes/deployments.js";
 import { github } from "./routes/github.js";
+import { wakingRouter } from "./routes/waking.js";
 import { loadSession } from "./middleware/session.js";
 
 const app = express();
@@ -23,6 +24,11 @@ app.use("/api/github", github);
 
 app.use(express.json());
 app.use(cookieParser());
+
+// Public wake-on-visit endpoints — no session required, since random visitors
+// to a sleeping app's URL need to be able to wake it up.
+app.use(wakingRouter);
+
 app.use(loadSession);
 
 app.get("/health", (_req, res) => res.json({ ok: true }));
