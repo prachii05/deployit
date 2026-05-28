@@ -75,15 +75,16 @@ async function setCaddyRoute(opts: {
           match: [{ host: [opts.host] }],
           handle: [
             {
-              handler: "route",
+              // Caddy's `subroute` lets us match by path inside a single
+              // outer route. The wake endpoint passes through to the API
+              // unchanged; everything else gets rewritten to the waking
+              // page. Without this split, the JS on the waking page can't
+              // hit POST /__wake/:slug because it would be rewritten too.
+              handler: "subroute",
               routes: [
                 {
-                  match: [{ path: "/" }],
+                  match: [{ path: ["/__wake/*", "/__waking*"] }],
                   handle: [
-                    {
-                      handler: "rewrite",
-                      uri: `/__waking?slug=${opts.slug}`,
-                    },
                     {
                       handler: "reverse_proxy",
                       upstreams: [{ dial: "api:4000" }],
@@ -92,6 +93,10 @@ async function setCaddyRoute(opts: {
                 },
                 {
                   handle: [
+                    {
+                      handler: "rewrite",
+                      uri: `/__waking?slug=${opts.slug}`,
+                    },
                     {
                       handler: "reverse_proxy",
                       upstreams: [{ dial: "api:4000" }],
