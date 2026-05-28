@@ -100,6 +100,19 @@ ENV
 chmod 600 /opt/deployit/.env
 chown ubuntu:ubuntu /opt/deployit/.env
 
+# --- configure Docker log rotation (keep ~1 day of logs per container) ---
+cat > /etc/docker/daemon.json <<DAEMON
+{
+  "log-driver": "json-file",
+  "log-opts": {
+    "max-size": "5m",
+    "max-file": "5"
+  }
+}
+DAEMON
+systemctl restart docker
+sleep 3
+
 # --- boot the stack ---
 cd /opt/deployit
 docker compose -f docker-compose.prod.yml up -d --build
