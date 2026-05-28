@@ -2,6 +2,7 @@ import { Router } from "express";
 import { z } from "zod";
 import { and, desc, eq } from "drizzle-orm";
 import Docker from "dockerode";
+import { statSync } from "node:fs";
 import { projects, deployments } from "@deployit/db";
 import { db } from "../db.js";
 import { requireAuth } from "../middleware/session.js";
@@ -22,13 +23,18 @@ const docker = new Docker({ socketPath: detectDockerSocket() });
 function detectDockerSocket(): string {
   const candidates = [
     process.env.DOCKER_HOST?.replace(/^unix:\/\//, ""),
+    "/var/run/docker.sock",
     `${process.env.HOME}/.rd/docker.sock`,
     `${process.env.HOME}/.docker/run/docker.sock`,
-    "/var/run/docker.sock",
   ].filter(Boolean) as string[];
-  // We can't easily fs.stat in module-init; just return the first defined.
-  // dockerode will error at call-time if the path is wrong.
-  return candidates[0]!;
+  for (const path of candidates) {
+    try {
+      if (statSync(path).isSocket()) return path;
+    } catch {
+      // not present
+    }
+  }
+  return "/var/run/docker.sock"; // fallback; dockerode will error on use
 }
 
 projectsRouter.get("/", async (req, res) => {
