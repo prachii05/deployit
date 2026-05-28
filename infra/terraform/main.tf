@@ -72,18 +72,67 @@ resource "aws_key_pair" "deployit" {
   public_key = var.ssh_public_key
 }
 
+# IAM role: lets the EC2 read SSM SecureString parameters under /deployit/*
+resource "aws_iam_role" "deployit" {
+  name = "deployit-ec2"
+  assume_role_policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Effect    = "Allow"
+      Principal = { Service = "ec2.amazonaws.com" }
+      Action    = "sts:AssumeRole"
+    }]
+  })
+}
+
+resource "aws_iam_role_policy" "deployit_ssm" {
+  name = "deployit-ssm-read"
+  role = aws_iam_role.deployit.id
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Effect = "Allow"
+        Action = [
+          "ssm:GetParameter",
+          "ssm:GetParameters",
+          "ssm:GetParametersByPath",
+        ]
+        Resource = "arn:aws:ssm:${var.aws_region}:*:parameter/deployit/*"
+      },
+      {
+        Effect   = "Allow"
+        Action   = "kms:Decrypt"
+        Resource = "*"
+        Condition = {
+          StringEquals = {
+            "kms:ViaService" = "ssm.${var.aws_region}.amazonaws.com"
+          }
+        }
+      }
+    ]
+  })
+}
+
+resource "aws_iam_instance_profile" "deployit" {
+  name = "deployit-ec2"
+  role = aws_iam_role.deployit.name
+}
+
 resource "aws_instance" "deployit" {
   ami                    = data.aws_ami.ubuntu.id
   instance_type          = "t2.micro"
   key_name               = aws_key_pair.deployit.key_name
   vpc_security_group_ids = [aws_security_group.deployit.id]
+  iam_instance_profile   = aws_iam_instance_profile.deployit.name
 
   root_block_device {
     volume_size = 30
     volume_type = "gp3"
   }
 
-  user_data = file("${path.module}/user-data.sh")
+  user_data                   = file("${path.module}/user-data.sh")
+  user_data_replace_on_change = true
 
   tags = {
     Name    = "deployit"
