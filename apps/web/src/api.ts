@@ -21,6 +21,7 @@ export type Project = {
   framework: string | null;
   status: "idle" | "deploying" | "live" | "failed" | "sleeping";
   liveDeploymentId: number | null;
+  githubWebhookId: number | null;
   createdAt: string;
 };
 

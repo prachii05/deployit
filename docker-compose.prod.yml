@@ -55,6 +55,7 @@ services:
       GITHUB_OAUTH_CALLBACK: https://${DOMAIN}/auth/github/callback
       SESSION_SECRET: ${SESSION_SECRET}
       ENCRYPTION_KEY: ${ENCRYPTION_KEY}
+      WEBHOOK_SECRET: ${WEBHOOK_SECRET}
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
     depends_on:
       migrate:

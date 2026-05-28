@@ -52,6 +52,9 @@ export const projects = pgTable("projects", {
   framework: text("framework"), // detected on first deploy
   status: projectStatus("status").default("idle").notNull(),
   liveDeploymentId: integer("live_deployment_id"),
+  // GitHub webhook id, set after we register the hook on the repo so we can
+  // remove it on project delete.
+  githubWebhookId: integer("github_webhook_id"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
 

@@ -6,6 +6,7 @@ import { auth } from "./routes/auth.js";
 import { me } from "./routes/me.js";
 import { projectsRouter } from "./routes/projects.js";
 import { deploymentsRouter } from "./routes/deployments.js";
+import { github } from "./routes/github.js";
 import { loadSession } from "./middleware/session.js";
 
 const app = express();
@@ -16,6 +17,10 @@ app.use(
     credentials: true,
   })
 );
+// Mount GitHub webhook BEFORE express.json() so it can verify the raw body
+// against the HMAC signature.
+app.use("/api/github", github);
+
 app.use(express.json());
 app.use(cookieParser());
 app.use(loadSession);

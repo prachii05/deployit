@@ -12,6 +12,9 @@ const schema = z.object({
   ENCRYPTION_KEY: z
     .string()
     .regex(/^[0-9a-fA-F]{64}$/, "ENCRYPTION_KEY must be 64 hex chars (32 bytes)"),
+  // Shared secret GitHub uses to sign webhook payloads (HMAC-SHA256).
+  // Generated once per platform install.
+  WEBHOOK_SECRET: z.string().min(16),
   ANTHROPIC_API_KEY: z.string().optional(),
 });
 

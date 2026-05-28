@@ -80,6 +80,8 @@ SESSION_SECRET=$(openssl rand -hex 32)
 put SESSION_SECRET "$SESSION_SECRET"
 ENCRYPTION_KEY=$(openssl rand -hex 32)
 put ENCRYPTION_KEY "$ENCRYPTION_KEY"
+WEBHOOK_SECRET=$(openssl rand -hex 32)
+put WEBHOOK_SECRET "$WEBHOOK_SECRET"
 
 # --- optional ---
 echo

@@ -96,9 +96,17 @@ export function Dashboard() {
                       {p.status}
                     </span>
                   </div>
-                  <div className="text-xs text-zinc-500 mt-1">
-                    {p.slug}.deployit.app{" "}
+                  <div className="text-xs text-zinc-500 mt-1 flex items-center gap-2">
+                    <span>{p.slug}.deployit.app</span>
                     {p.framework && <span>· {p.framework}</span>}
+                    {p.githubWebhookId && (
+                      <span
+                        title="Auto-deploys on every push to default branch"
+                        className="text-emerald-400"
+                      >
+                        ⚡ push-to-deploy
+                      </span>
+                    )}
                   </div>
                   {p.status === "live" && p.liveDeploymentId && (
                     <button
