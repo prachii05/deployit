@@ -75,12 +75,30 @@ async function setCaddyRoute(opts: {
           match: [{ host: [opts.host] }],
           handle: [
             {
-              handler: "rewrite",
-              uri: `/__waking?slug=${opts.slug}`,
-            },
-            {
-              handler: "reverse_proxy",
-              upstreams: [{ dial: "api:4000" }],
+              handler: "route",
+              routes: [
+                {
+                  match: [{ path: "/" }],
+                  handle: [
+                    {
+                      handler: "rewrite",
+                      uri: `/__waking?slug=${opts.slug}`,
+                    },
+                    {
+                      handler: "reverse_proxy",
+                      upstreams: [{ dial: "api:4000" }],
+                    },
+                  ],
+                },
+                {
+                  handle: [
+                    {
+                      handler: "reverse_proxy",
+                      upstreams: [{ dial: "api:4000" }],
+                    },
+                  ],
+                },
+              ],
             },
           ],
         };
