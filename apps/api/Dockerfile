@@ -15,7 +15,7 @@ COPY packages/db ./packages/db
 COPY apps/api ./apps/api
 RUN pnpm --filter @deployit/db run build \
  && pnpm --filter @deployit/api run build \
- && pnpm deploy --filter @deployit/api --prod /prod
+ && pnpm deploy --filter @deployit/api --prod --legacy /prod
 
 FROM node:20-alpine AS runner
 ENV NODE_ENV=production

@@ -12,7 +12,7 @@ COPY packages/db ./packages/db
 COPY apps/worker ./apps/worker
 RUN pnpm --filter @deployit/db run build \
  && pnpm --filter @deployit/worker run build \
- && pnpm deploy --filter @deployit/worker --prod /prod \
+ && pnpm deploy --filter @deployit/worker --prod --legacy /prod \
  && cp -r apps/worker/templates /prod/templates
 
 FROM node:20-alpine AS runner
