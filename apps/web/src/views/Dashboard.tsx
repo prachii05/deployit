@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { api, type Project } from "../api";
 import { RepoPicker } from "./RepoPicker";
 import { LogsPanel } from "./LogsPanel";
+import { RuntimeLogsPanel } from "./RuntimeLogsPanel";
 
 const statusStyles: Record<Project["status"], string> = {
   idle: "bg-zinc-700 text-zinc-200",
@@ -16,6 +17,7 @@ export function Dashboard() {
   const [picking, setPicking] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [watchingDeployment, setWatchingDeployment] = useState<number | null>(null);
+  const [runtimeLogsFor, setRuntimeLogsFor] = useState<Project | null>(null);
   const [deployingId, setDeployingId] = useState<number | null>(null);
 
   async function refresh() {
@@ -108,14 +110,24 @@ export function Dashboard() {
                       </span>
                     )}
                   </div>
-                  {p.status === "live" && p.liveDeploymentId && (
-                    <button
-                      onClick={() => setWatchingDeployment(p.liveDeploymentId!)}
-                      className="text-xs text-blue-400 hover:underline mt-1"
-                    >
-                      View deployment
-                    </button>
-                  )}
+                  <div className="flex items-center gap-3 mt-1">
+                    {p.latestDeploymentId && (
+                      <button
+                        onClick={() => setWatchingDeployment(p.latestDeploymentId!)}
+                        className="text-xs text-blue-400 hover:underline"
+                      >
+                        Build logs
+                      </button>
+                    )}
+                    {p.status === "live" && (
+                      <button
+                        onClick={() => setRuntimeLogsFor(p)}
+                        className="text-xs text-emerald-400 hover:underline"
+                      >
+                        Runtime logs
+                      </button>
+                    )}
+                  </div>
                 </div>
                 <div className="flex items-center gap-2 shrink-0">
                   <button
@@ -157,6 +169,14 @@ export function Dashboard() {
           deploymentId={watchingDeployment}
           onClose={() => setWatchingDeployment(null)}
           onSettled={refresh}
+        />
+      )}
+
+      {runtimeLogsFor && (
+        <RuntimeLogsPanel
+          projectId={runtimeLogsFor.id}
+          projectName={runtimeLogsFor.repoFullName}
+          onClose={() => setRuntimeLogsFor(null)}
         />
       )}
     </main>

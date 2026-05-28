@@ -57,6 +57,10 @@ services:
       ENCRYPTION_KEY: ${ENCRYPTION_KEY}
       WEBHOOK_SECRET: ${WEBHOOK_SECRET}
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+    volumes:
+      # Read-only docker.sock so the API can tail runtime logs from user
+      # app containers (we never need to create/destroy containers here).
+      - /var/run/docker.sock:/var/run/docker.sock:ro
     depends_on:
       migrate:
         condition: service_completed_successfully

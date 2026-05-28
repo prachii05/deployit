@@ -21,8 +21,15 @@ export type Project = {
   framework: string | null;
   status: "idle" | "deploying" | "live" | "failed" | "sleeping";
   liveDeploymentId: number | null;
+  latestDeploymentId: number | null;
   githubWebhookId: number | null;
   createdAt: string;
+};
+
+export type RuntimeLogLine = {
+  stream: "stdout" | "stderr";
+  ts: string | null;
+  line: string;
 };
 
 async function req<T>(path: string, init?: RequestInit): Promise<T> {
@@ -59,6 +66,10 @@ export const api = {
     req<{ deployment: Deployment }>(`/api/deployments/${id}`),
   deploymentLogs: (id: number, since = 0) =>
     req<{ logs: LogLine[] }>(`/api/deployments/${id}/logs?since=${since}`),
+  runtimeLogs: (projectId: number, tail = 200) =>
+    req<{ logs: RuntimeLogLine[]; container: string; message?: string }>(
+      `/api/projects/${projectId}/runtime-logs?tail=${tail}`
+    ),
 };
 
 export type Deployment = {
