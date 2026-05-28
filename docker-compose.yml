@@ -1,0 +1,41 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: deployit
+      POSTGRES_PASSWORD: deployit
+      POSTGRES_DB: deployit
+    ports:
+      - "5433:5432"
+    volumes:
+      - deployit_pg:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U deployit"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  caddy:
+    image: caddy:2.8-alpine
+    restart: unless-stopped
+    ports:
+      - "18080:80"    # public traffic (subdomain routing). 80 and 8080 are
+                      # both auto-grabbed by Rancher Desktop's SSH tunnel.
+      - "2019:2019"   # admin API (used by worker to add routes)
+    networks:
+      - deployit-net
+    volumes:
+      - ./infra/caddy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+
+networks:
+  deployit-net:
+    name: deployit-net
+    driver: bridge
+
+volumes:
+  deployit_pg:
+  caddy_data:
+  caddy_config:

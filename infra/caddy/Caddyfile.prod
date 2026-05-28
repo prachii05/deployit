@@ -1,0 +1,29 @@
+# Production Caddyfile — needs Cloudflare DNS-01 challenge for wildcard cert.
+# Caddy is built with the Cloudflare DNS provider plugin via the official
+# `caddy:builder` image; for simplicity here we just use HTTP-01 for the apex
+# and require wildcard pre-provisioning if you want pretty subdomains via SSL.
+#
+# For a single-domain MVP (no wildcard subdomain SSL), this file works fine.
+# User app subdomains will be served over HTTP only on port 80 — upgrade to
+# wildcard SSL after switching the caddy image to one with the Cloudflare
+# plugin built in.
+
+{
+	admin 0.0.0.0:2019
+	email {$ACME_EMAIL}
+}
+
+# Apex domain → web dashboard, /auth and /api → control plane
+{$DOMAIN} {
+	@api path /api/* /auth/* /health
+	handle @api {
+		reverse_proxy api:4000
+	}
+	handle {
+		reverse_proxy web:80
+	}
+}
+
+# Wildcard handler — user-app subdomains. Routes for these are added
+# dynamically by the worker via the admin API at runtime.
+# (Empty here; populated at deploy time.)

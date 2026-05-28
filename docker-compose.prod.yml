@@ -1,0 +1,119 @@
+# Production compose — runs DeployIt on a single VM (EC2 / Oracle / etc.).
+# All services join `deployit-net` so Caddy can reach them by service name.
+#
+# Required .env at repo root:
+#   DOMAIN=deployit.example.com   (your apex)
+#   ACME_EMAIL=you@example.com
+#   CLOUDFLARE_API_TOKEN=...      (DNS-01 challenge for wildcard cert)
+#   POSTGRES_PASSWORD=...
+#   GITHUB_CLIENT_ID / GITHUB_CLIENT_SECRET
+#   SESSION_SECRET / ENCRYPTION_KEY
+#   ANTHROPIC_API_KEY (optional, for AI explainer)
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: deployit
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: deployit
+    volumes:
+      - pg_data:/var/lib/postgresql/data
+    networks:
+      - deployit-net
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U deployit"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  migrate:
+    build:
+      context: .
+      dockerfile: packages/db/Dockerfile
+    environment:
+      DATABASE_URL: postgres://deployit:${POSTGRES_PASSWORD}@postgres:5432/deployit
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - deployit-net
+    restart: "no"
+
+  api:
+    build:
+      context: .
+      dockerfile: apps/api/Dockerfile
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: postgres://deployit:${POSTGRES_PASSWORD}@postgres:5432/deployit
+      PORT: 4000
+      WEB_ORIGIN: https://${DOMAIN}
+      GITHUB_CLIENT_ID: ${GITHUB_CLIENT_ID}
+      GITHUB_CLIENT_SECRET: ${GITHUB_CLIENT_SECRET}
+      GITHUB_OAUTH_CALLBACK: https://${DOMAIN}/auth/github/callback
+      SESSION_SECRET: ${SESSION_SECRET}
+      ENCRYPTION_KEY: ${ENCRYPTION_KEY}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    networks:
+      - deployit-net
+
+  worker:
+    build:
+      context: .
+      dockerfile: apps/worker/Dockerfile
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: postgres://deployit:${POSTGRES_PASSWORD}@postgres:5432/deployit
+      DEPLOYIT_NETWORK: deployit-net
+      DEPLOYIT_DOMAIN: ${DOMAIN}
+      DEPLOYIT_PUBLIC_PORT: 443
+      CADDY_ADMIN_URL: http://caddy:2019
+      DOCKER_SOCKET: /var/run/docker.sock
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    networks:
+      - deployit-net
+
+  web:
+    build:
+      context: .
+      dockerfile: apps/web/Dockerfile
+    restart: unless-stopped
+    networks:
+      - deployit-net
+
+  caddy:
+    image: caddy:2.8-alpine
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"  # HTTP/3
+    environment:
+      DOMAIN: ${DOMAIN}
+      ACME_EMAIL: ${ACME_EMAIL}
+      CLOUDFLARE_API_TOKEN: ${CLOUDFLARE_API_TOKEN}
+    volumes:
+      - ./infra/caddy/Caddyfile.prod:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    networks:
+      - deployit-net
+
+networks:
+  deployit-net:
+    name: deployit-net
+    driver: bridge
+
+volumes:
+  pg_data:
+  caddy_data:
+  caddy_config:

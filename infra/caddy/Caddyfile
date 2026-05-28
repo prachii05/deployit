@@ -1,0 +1,12 @@
+{
+	# Caddy admin API — bound to 0.0.0.0 so the host can hit it on :2019.
+	# In production we'd restrict this; locally docker-compose only publishes
+	# 2019 to localhost.
+	admin 0.0.0.0:2019
+
+	# Disable the auto-HTTPS redirect for *.localhost dev.
+	auto_https off
+}
+
+# Server is created/managed entirely by the worker via the admin API.
+# No static routes defined here — the worker adds them dynamically.
