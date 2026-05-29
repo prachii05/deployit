@@ -57,6 +57,8 @@ services:
       ENCRYPTION_KEY: ${ENCRYPTION_KEY}
       WEBHOOK_SECRET: ${WEBHOOK_SECRET}
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      NEON_API_KEY: ${NEON_API_KEY:-}
+      NEON_PROJECT_ID: ${NEON_PROJECT_ID:-}
       # Minutes of no traffic before a container is auto-slept. 0 disables it.
       AUTOSLEEP_MINUTES: ${AUTOSLEEP_MINUTES:-30}
       # Caddy container name — the API streams its access logs for activity

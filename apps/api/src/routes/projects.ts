@@ -12,6 +12,7 @@ import { registerWebhook, unregisterWebhook } from "../services/github.js";
 import { decrypt } from "../crypto.js";
 import { env } from "../env.js";
 import { envVarsRouter } from "./env-vars.js";
+import { databaseRouter } from "./database.js";
 import { markActive } from "../activity.js";
 
 export const projectsRouter = Router();
@@ -20,6 +21,8 @@ projectsRouter.use(requireAuth);
 
 // Nested resource: /api/projects/:projectId/env-vars
 projectsRouter.use("/:projectId/env-vars", envVarsRouter);
+// Nested resource: /api/projects/:projectId/database
+projectsRouter.use("/:projectId/database", databaseRouter);
 
 // Try common Docker socket locations so this works in Docker (prod) and on a
 // dev laptop running Rancher/Docker Desktop.

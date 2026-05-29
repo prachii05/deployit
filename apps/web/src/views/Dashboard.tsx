@@ -4,6 +4,7 @@ import { RepoPicker } from "./RepoPicker";
 import { LogsPanel } from "./LogsPanel";
 import { RuntimeLogsPanel } from "./RuntimeLogsPanel";
 import { EnvVarsPanel } from "./EnvVarsPanel";
+import { DatabaseButton } from "./DatabaseButton";
 
 const statusStyles: Record<Project["status"], string> = {
   idle: "bg-zinc-700 text-zinc-200",
@@ -157,6 +158,10 @@ export function Dashboard() {
                     >
                       Env vars
                     </button>
+                    <DatabaseButton
+                      projectId={p.id}
+                      onProvisioned={refresh}
+                    />
                   </div>
                 </div>
                 <div className="flex items-center gap-2 shrink-0">

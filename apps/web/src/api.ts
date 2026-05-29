@@ -82,6 +82,18 @@ export const api = {
     req<{ ok: true }>(`/api/projects/${projectId}/env-vars/${envId}`, {
       method: "DELETE",
     }),
+  dbStatus: (projectId: number) =>
+    req<{ hasDatabase: boolean; neonEnabled: boolean }>(
+      `/api/projects/${projectId}/database`
+    ),
+  addDatabase: (projectId: number) =>
+    req<{ ok: true; message: string }>(`/api/projects/${projectId}/database`, {
+      method: "POST",
+    }),
+  removeDatabase: (projectId: number) =>
+    req<{ ok: true }>(`/api/projects/${projectId}/database`, {
+      method: "DELETE",
+    }),
   sleep: (projectId: number) =>
     req<{ ok: true; status: string }>(`/api/projects/${projectId}/sleep`, {
       method: "POST",

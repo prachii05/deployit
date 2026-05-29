@@ -16,6 +16,10 @@ const schema = z.object({
   // Generated once per platform install.
   WEBHOOK_SECRET: z.string().min(16),
   ANTHROPIC_API_KEY: z.string().optional(),
+  // Neon serverless Postgres — used by the "Add Database" one-click feature.
+  // Optional: if absent the button is hidden in the UI.
+  NEON_API_KEY: z.string().optional(),
+  NEON_PROJECT_ID: z.string().optional(),
 });
 
 export const env = schema.parse(process.env);
