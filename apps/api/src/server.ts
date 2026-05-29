@@ -9,6 +9,7 @@ import { deploymentsRouter } from "./routes/deployments.js";
 import { github } from "./routes/github.js";
 import { wakingRouter } from "./routes/waking.js";
 import { startAutoSleep } from "./autosleep.js";
+import { startActivityTracker } from "./activity.js";
 import { loadSession } from "./middleware/session.js";
 
 const app = express();
@@ -41,5 +42,6 @@ app.use("/api/deployments", deploymentsRouter);
 
 app.listen(env.PORT, () => {
   console.log(`✓ api listening on http://localhost:${env.PORT}`);
+  void startActivityTracker();
   startAutoSleep();
 });

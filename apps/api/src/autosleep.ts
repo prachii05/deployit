@@ -1,71 +1,47 @@
 /**
- * Auto-sleep loop: stops containers that have seen no traffic for a while,
- * freeing RAM on small VMs. Wake-on-visit (see routes/waking.ts) brings them
- * back when someone hits the URL again.
+ * Auto-sleep loop: stops containers idle past the configured threshold to
+ * free RAM on small VMs. Wake-on-visit (routes/waking.ts) brings them back.
  *
- * Activity detection is free and dependency-light: we read each running
- * container's cumulative network RX byte counter from Docker stats. If it
- * grew since the last check, the app served a request, so we bump
- * `lastActiveAt`. Once now − lastActiveAt exceeds the idle threshold, we
- * sleep the project.
- *
- * RX bytes survive nothing across restarts, so we treat the first observation
- * of a container as "active now" to give freshly-(re)started apps a full
- * grace window.
+ * Activity is detected at the proxy layer (see activity.ts), not by polling
+ * Docker — so this loop only does cheap work: an in-memory lookup per live
+ * project, then a stop for any that have gone quiet. It also flushes the
+ * in-memory "last seen" time into the DB so the idle clock survives restarts.
  */
 
 import { eq } from "drizzle-orm";
 import { projects } from "@deployit/db";
 import { db } from "./db.js";
-import { docker, sleepProject } from "./routes/projects.js";
+import { sleepProject } from "./routes/projects.js";
+import { getLastSeen } from "./activity.js";
 
-const CHECK_INTERVAL_MS = 60_000; // re-evaluate every minute
+const CHECK_INTERVAL_MS = 60_000;
 const IDLE_MINUTES = Number(process.env.AUTOSLEEP_MINUTES ?? 30);
 
-// slug → last observed cumulative RX bytes
-const lastRx = new Map<string, number>();
-
-async function containerRxBytes(slug: string): Promise<number | null> {
-  try {
-    const stats = (await docker
-      .getContainer(`deployit-${slug}`)
-      .stats({ stream: false })) as unknown as {
-      networks?: Record<string, { rx_bytes: number }>;
-    };
-    if (!stats.networks) return 0;
-    return Object.values(stats.networks).reduce((sum, n) => sum + (n.rx_bytes ?? 0), 0);
-  } catch {
-    // Container not running / not found.
-    return null;
-  }
-}
-
 async function tick(): Promise<void> {
-  const live = (await db.select().from(projects)).filter((p) => p.status === "live");
+  const live = await db
+    .select()
+    .from(projects)
+    .where(eq(projects.status, "live"));
 
+  const now = Date.now();
   for (const p of live) {
-    const rx = await containerRxBytes(p.slug);
-    if (rx === null) continue; // container gone; leave status alone
+    const seen = getLastSeen(p.slug);
 
-    const prev = lastRx.get(p.slug);
-    const sawTraffic = prev === undefined || rx > prev;
-    lastRx.set(p.slug, rx);
-
-    if (sawTraffic) {
-      // First sighting or real traffic → mark active now.
+    // Persist fresh in-memory activity so the idle clock survives restarts.
+    if (seen && seen > new Date(p.lastActiveAt).getTime()) {
       await db
         .update(projects)
-        .set({ lastActiveAt: new Date() })
+        .set({ lastActiveAt: new Date(seen) })
         .where(eq(projects.id, p.id));
-      continue;
     }
 
-    const idleMs = Date.now() - new Date(p.lastActiveAt).getTime();
-    if (idleMs >= IDLE_MINUTES * 60_000) {
-      console.log(`💤 auto-sleeping ${p.slug} (idle ${Math.round(idleMs / 60_000)}m)`);
+    const lastActive = Math.max(seen ?? 0, new Date(p.lastActiveAt).getTime());
+    if (now - lastActive >= IDLE_MINUTES * 60_000) {
+      console.log(
+        `💤 auto-sleeping ${p.slug} (idle ${Math.round((now - lastActive) / 60_000)}m)`
+      );
       try {
         await sleepProject(p);
-        lastRx.delete(p.slug);
       } catch (e) {
         console.error(`auto-sleep failed for ${p.slug}:`, e);
       }

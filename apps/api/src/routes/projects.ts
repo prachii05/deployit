@@ -12,6 +12,7 @@ import { registerWebhook, unregisterWebhook } from "../services/github.js";
 import { decrypt } from "../crypto.js";
 import { env } from "../env.js";
 import { envVarsRouter } from "./env-vars.js";
+import { markActive } from "../activity.js";
 
 export const projectsRouter = Router();
 
@@ -425,6 +426,7 @@ async function wakeProject(
   // dashboard doesn't flip to "live" while the URL still 502s.
   await waitForReady(p.slug, p.framework);
 
+  markActive(p.slug); // fresh grace window so it doesn't immediately re-sleep
   await db
     .update(projects)
     .set({ status: "live", lastActiveAt: new Date() })
