@@ -94,6 +94,12 @@ export const api = {
     req<{ ok: true }>(`/api/projects/${projectId}/database`, {
       method: "DELETE",
     }),
+  runQuery: (projectId: number, sql: string) =>
+    req<QueryResult>(`/api/projects/${projectId}/database/query`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ sql }),
+    }),
   sleep: (projectId: number) =>
     req<{ ok: true; status: string }>(`/api/projects/${projectId}/sleep`, {
       method: "POST",
@@ -109,6 +115,14 @@ export type EnvVar = {
   key: string;
   preview: string;
   createdAt?: string;
+};
+
+export type QueryResult = {
+  columns: string[];
+  rows: Record<string, unknown>[];
+  rowCount: number;
+  truncated: boolean;
+  durationMs: number;
 };
 
 export type Deployment = {

@@ -1,18 +1,26 @@
 /**
- * One-click database provisioning (Neon Serverless Postgres).
+ * One-click database provisioning (Neon Serverless Postgres) + a built-in
+ * SQL editor for querying the provisioned database.
  *
- *   POST   /api/projects/:id/database   →  provision + inject DATABASE_URL
- *   DELETE /api/projects/:id/database   →  deprovision
- *   GET    /api/projects/:id/database   →  status (exists or not)
+ *   POST   /api/projects/:id/database         →  provision + inject DATABASE_URL
+ *   DELETE /api/projects/:id/database         →  deprovision
+ *   GET    /api/projects/:id/database         →  status (exists or not)
+ *   POST   /api/projects/:id/database/query   →  run SQL, return rows
  */
 
 import { Router } from "express";
 import { and, eq } from "drizzle-orm";
+import postgres from "postgres";
 import { projects, databases, envVars } from "@deployit/db";
 import { db } from "../db.js";
 import { env } from "../env.js";
-import { encrypt } from "../crypto.js";
+import { encrypt, decrypt } from "../crypto.js";
 import { provisionDatabase, deprovisionDatabase } from "../services/neon.js";
+
+// Guard rails for the SQL editor.
+const MAX_SQL_LENGTH = 50_000;
+const MAX_ROWS = 1000;
+const STATEMENT_TIMEOUT_MS = 10_000;
 
 export const databaseRouter = Router({ mergeParams: true });
 
@@ -129,3 +137,81 @@ databaseRouter.delete("/", async (req, res) => {
 
   res.json({ ok: true });
 });
+
+/**
+ * Built-in SQL editor. Runs arbitrary SQL against the project's provisioned
+ * database and returns the rows.
+ *
+ * Safety: the query runs as the project's own Neon role, which Postgres
+ * confines to that project's database — a user cannot reach another user's
+ * data even with hand-crafted SQL. We also bound resource use per request:
+ *   - a fresh single connection that's always closed (no pooling/leaks)
+ *   - a server-side statement_timeout so a slow/runaway query can't hang
+ *   - a row cap so a huge table can't be dumped into the browser
+ */
+databaseRouter.post("/query", async (req, res) => {
+  const projectId = Number((req.params as { projectId: string }).projectId);
+  const proj = await db
+    .select()
+    .from(projects)
+    .where(and(eq(projects.id, projectId), eq(projects.userId, req.user!.id)))
+    .limit(1);
+  if (!proj[0]) return res.status(404).json({ error: "not found" });
+
+  const sqlText = typeof req.body?.sql === "string" ? req.body.sql.trim() : "";
+  if (!sqlText) return res.status(400).json({ error: "sql is required" });
+  if (sqlText.length > MAX_SQL_LENGTH) {
+    return res.status(400).json({ error: "query too long" });
+  }
+
+  const dbRecord = await db
+    .select()
+    .from(databases)
+    .where(eq(databases.projectId, projectId))
+    .limit(1);
+  if (!dbRecord[0]) {
+    return res.status(404).json({ error: "no database — add one first" });
+  }
+
+  const connString = decrypt(dbRecord[0].connectionStringEncrypted);
+  const sql = postgres(connString, {
+    max: 1,
+    connect_timeout: 10,
+    idle_timeout: 5,
+    // Server-side cap so runaway queries (e.g. pg_sleep) can't hold the conn.
+    connection: { statement_timeout: STATEMENT_TIMEOUT_MS },
+    // We deliberately ignore NOTICE noise.
+    onnotice: () => {},
+  });
+
+  const startedAt = Date.now();
+  try {
+    // `.unsafe` runs a raw SQL string. That's intentional here: it's the
+    // user's OWN isolated database, so "injection" has no cross-tenant reach.
+    const result = await sql.unsafe(sqlText);
+    const rows = Array.from(result as unknown as Record<string, unknown>[]);
+    const truncated = rows.length > MAX_ROWS;
+    const limited = truncated ? rows.slice(0, MAX_ROWS) : rows;
+    // Column order from the first row (or empty for non-SELECT statements).
+    const columns = limited[0] ? Object.keys(limited[0]) : [];
+
+    res.json({
+      columns,
+      rows: limited,
+      rowCount: rows.length,
+      truncated,
+      durationMs: Date.now() - startedAt,
+    });
+  } catch (e) {
+    // Surface the Postgres error message only — never the connection string.
+    const msg = e instanceof Error ? e.message : String(e);
+    res.status(400).json({ error: sanitize(msg, connString) });
+  } finally {
+    await sql.end({ timeout: 5 }).catch(() => {});
+  }
+});
+
+/** Defensive: strip the connection string from any error text. */
+function sanitize(msg: string, secret: string): string {
+  return msg.split(secret).join("[redacted]");
+}

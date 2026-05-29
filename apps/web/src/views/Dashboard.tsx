@@ -5,6 +5,7 @@ import { LogsPanel } from "./LogsPanel";
 import { RuntimeLogsPanel } from "./RuntimeLogsPanel";
 import { EnvVarsPanel } from "./EnvVarsPanel";
 import { DatabaseButton } from "./DatabaseButton";
+import { SqlEditorPanel } from "./SqlEditorPanel";
 
 const statusStyles: Record<Project["status"], string> = {
   idle: "bg-zinc-700 text-zinc-200",
@@ -21,6 +22,7 @@ export function Dashboard() {
   const [watchingDeployment, setWatchingDeployment] = useState<number | null>(null);
   const [runtimeLogsFor, setRuntimeLogsFor] = useState<Project | null>(null);
   const [envVarsFor, setEnvVarsFor] = useState<Project | null>(null);
+  const [sqlEditorFor, setSqlEditorFor] = useState<Project | null>(null);
   const [deployingId, setDeployingId] = useState<number | null>(null);
 
   async function refresh() {
@@ -161,6 +163,7 @@ export function Dashboard() {
                     <DatabaseButton
                       projectId={p.id}
                       onProvisioned={refresh}
+                      onOpenSql={() => setSqlEditorFor(p)}
                     />
                   </div>
                 </div>
@@ -233,6 +236,14 @@ export function Dashboard() {
           projectId={envVarsFor.id}
           projectName={envVarsFor.repoFullName}
           onClose={() => setEnvVarsFor(null)}
+        />
+      )}
+
+      {sqlEditorFor && (
+        <SqlEditorPanel
+          projectId={sqlEditorFor.id}
+          projectName={sqlEditorFor.repoFullName}
+          onClose={() => setSqlEditorFor(null)}
         />
       )}
     </main>

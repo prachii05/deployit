@@ -6,9 +6,11 @@ type State = "loading" | "none" | "has_db" | "provisioning" | "error";
 export function DatabaseButton({
   projectId,
   onProvisioned,
+  onOpenSql,
 }: {
   projectId: number;
   onProvisioned: () => void;
+  onOpenSql: () => void;
 }) {
   const [state, setState] = useState<State>("loading");
   const [neonEnabled, setNeonEnabled] = useState(false);
@@ -54,6 +56,12 @@ export function DatabaseButton({
           <span className="text-xs px-2 py-0.5 rounded bg-emerald-900 text-emerald-300">
             DB connected
           </span>
+          <button
+            onClick={onOpenSql}
+            className="text-xs text-cyan-400 hover:underline"
+          >
+            SQL editor
+          </button>
           <button
             onClick={remove}
             className="text-xs text-zinc-500 hover:text-red-400"
