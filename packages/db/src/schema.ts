@@ -55,6 +55,9 @@ export const projects = pgTable("projects", {
   // GitHub webhook id, set after we register the hook on the repo so we can
   // remove it on project delete.
   githubWebhookId: integer("github_webhook_id"),
+  // Last time the app saw traffic (or was deployed/woken). The auto-sleep
+  // loop stops containers idle longer than the configured threshold.
+  lastActiveAt: timestamp("last_active_at").defaultNow().notNull(),
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
 

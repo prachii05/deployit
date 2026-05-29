@@ -74,7 +74,10 @@ wakingRouter.post("/__wake/:slug", async (req, res) => {
     console.error("caddy swap failed:", e)
   );
 
-  await db.update(projects).set({ status: "live" }).where(eq(projects.id, proj.id));
+  await db
+    .update(projects)
+    .set({ status: "live", lastActiveAt: new Date() })
+    .where(eq(projects.id, proj.id));
   res.json({ ok: true, status: "live" });
 });
 

@@ -22,7 +22,7 @@ projectsRouter.use("/:projectId/env-vars", envVarsRouter);
 
 // Try common Docker socket locations so this works in Docker (prod) and on a
 // dev laptop running Rancher/Docker Desktop.
-const docker = new Docker({ socketPath: detectDockerSocket() });
+export const docker = new Docker({ socketPath: detectDockerSocket() });
 
 // Max simultaneously running ("live" or "deploying") projects per user.
 // Sleeping projects don't count — they use 0 RAM.
@@ -37,12 +37,44 @@ async function countActiveProjects(userId: number): Promise<number> {
 }
 
 /**
- * Default Docker container port we route to. Static sites use nginx on :80;
- * everything else listens on :3000 (see apps/worker/src/templates.ts).
+ * Default Docker container port. Static sites use nginx on :80; everything
+ * else listens on :3000 (see apps/worker/src/templates.ts).
  */
+function portFor(framework: string | null): number {
+  return framework === "static" ? 80 : 3000;
+}
+
 function upstreamFor(slug: string, framework: string | null): string {
-  const port = framework === "static" ? 80 : 3000;
-  return `deployit-${slug}:${port}`;
+  return `deployit-${slug}:${portFor(framework)}`;
+}
+
+/**
+ * Poll the just-started container until it accepts an HTTP connection, so we
+ * only report "live" once the app is actually serving — not just when the
+ * container kernel started. All services share deployit-net, so the API can
+ * reach the app container by name. Resolves true on first response, false on
+ * timeout (caller still proceeds — a slow app shouldn't block waking).
+ */
+async function waitForReady(
+  slug: string,
+  framework: string | null,
+  timeoutMs = 15_000
+): Promise<boolean> {
+  const url = `http://deployit-${slug}:${portFor(framework)}/`;
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    try {
+      const ctrl = new AbortController();
+      const t = setTimeout(() => ctrl.abort(), 2000);
+      // Any HTTP response (even 404/500) means the app is listening.
+      await fetch(url, { signal: ctrl.signal, redirect: "manual" });
+      clearTimeout(t);
+      return true;
+    } catch {
+      await new Promise((r) => setTimeout(r, 500));
+    }
+  }
+  return false;
 }
 
 const CADDY_ADMIN = process.env.CADDY_ADMIN_URL ?? "http://caddy:2019";
@@ -304,10 +336,20 @@ projectsRouter.post("/:id/sleep", async (req, res) => {
     .limit(1);
   if (!proj[0]) return res.status(404).json({ error: "not found" });
 
-  const containerName = `deployit-${proj[0].slug}`;
+  await sleepProject(proj[0]);
+  res.json({ ok: true, status: "sleeping" });
+});
+
+/**
+ * Stop a project's container and point its Caddy route at the waking page.
+ * Shared by the manual Sleep button and the auto-sleep loop.
+ */
+export async function sleepProject(
+  p: { id: number; slug: string; framework: string | null }
+): Promise<void> {
+  const containerName = `deployit-${p.slug}`;
   try {
-    const c = docker.getContainer(containerName);
-    await c.stop({ t: 5 });
+    await docker.getContainer(containerName).stop({ t: 5 });
   } catch (e) {
     const err = e as { statusCode?: number };
     // 304 = not running, 404 = doesn't exist; both are fine.
@@ -316,15 +358,14 @@ projectsRouter.post("/:id/sleep", async (req, res) => {
 
   // Swap Caddy route so visitors see our "waking up" page instead of a 502.
   await setCaddyRoute({
-    slug: proj[0].slug,
-    host: `${proj[0].slug}.${new URL(env.WEB_ORIGIN).hostname}`,
+    slug: p.slug,
+    host: `${p.slug}.${new URL(env.WEB_ORIGIN).hostname}`,
     target: "waking",
-    framework: proj[0].framework,
+    framework: p.framework,
   }).catch((e) => console.error("caddy swap to waking failed:", e));
 
-  await db.update(projects).set({ status: "sleeping" }).where(eq(projects.id, id));
-  res.json({ ok: true, status: "sleeping" });
-});
+  await db.update(projects).set({ status: "sleeping" }).where(eq(projects.id, p.id));
+}
 
 /**
  * Start a sleeping container. Fast — usually 1-3 seconds. Falls back to a
@@ -380,7 +421,14 @@ async function wakeProject(
     framework: p.framework,
   }).catch((e) => console.error("caddy swap to container failed:", e));
 
-  await db.update(projects).set({ status: "live" }).where(eq(projects.id, p.id));
+  // Wait until the app actually answers before reporting live, so the
+  // dashboard doesn't flip to "live" while the URL still 502s.
+  await waitForReady(p.slug, p.framework);
+
+  await db
+    .update(projects)
+    .set({ status: "live", lastActiveAt: new Date() })
+    .where(eq(projects.id, p.id));
   return { ok: true, status: "live" };
 }
 

@@ -112,7 +112,7 @@ export async function runDeployment(
 
     await db
       .update(projects)
-      .set({ status: "live", liveDeploymentId: deployment.id })
+      .set({ status: "live", liveDeploymentId: deployment.id, lastActiveAt: new Date() })
       .where(eq(projects.id, project.id));
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
